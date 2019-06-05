@@ -16,10 +16,10 @@ from astropy.constants import au, GM_sun
 from astropy import units as u
 
 def mean_to_eccentric(Me, ecc):
-'''A simple Newton-Raphson root finder method to solve Kepler's
-    equation for the eccentric anomaly.
-    Me: mean anomaly
-    ecc: eccentric anomaly'''
+    '''A simple Newton-Raphson root finder method to solve Kepler's
+        equation for the eccentric anomaly.
+        Me: mean anomaly
+        ecc: eccentric anomaly '''
 
     E = Me
     for i in range(10):
@@ -34,7 +34,7 @@ epoch_time = Time(epoch_JD, format="jd")
 
 #Apophis coordinates, plus calculation of the other anomalies.
 a = 0.9222654975186300 * au.value #in metres
-e = 0.1910573105795565
+e = 0.1910573105#795565
 i = 3.33132242244163 #All in DEGREES
 asc_node = 204.45996801109067
 a_of_p = 126.39643948747843
@@ -88,7 +88,10 @@ conversion_3 = np.dot(perifocal_to_reference, r_perifocal_v)
 print("Conversion 3:", conversion_3)
 print("Range:", np.linalg.norm(conversion_3))
 
-#Finds the range from the jpl ephemeris at the epoch
+'''Benchmark: JPL Horizons nominal position and range at epoch'''
 apophis = Horizons(id='Apophis', location='@0', epochs={'start':'2006-09-01', 'stop':'2006-09-02', 'step':'1d'})
-apophis_range = apophis.vectors()['range'][0] * au.value
-print("JPL Horizons calculated range:", apophis_range)
+range = apophis.vectors()['range'][0] * au.value
+ra = m.radians(apophis.ephemerides(quantities=1)['RA'][0])
+dec = -m.radians(apophis.ephemerides(quantities=1)['DEC'][0])
+print("JPL Horizons calculated position: " , [range*m.cos(ra)*m.cos(dec), range*m.cos(dec)*m.sin(ra), range*m.sin(dec)])
+print("JPL Horizons calculated range:", range)
