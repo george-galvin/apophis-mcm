@@ -3,13 +3,13 @@ import math as m
 import spiceypy as s
 import matplotlib.pyplot as plt
 
+
 from astropy import units as u
 from astropy.time import Time, TimeDelta
-from astropy.coordinates import get_body_barycentric, get_body_barycentric_posvel
+from astropy.coordinates import get_body_barycentric, get_body_barycentric_posvel, SkyCoord
 from astropy.coordinates import CartesianRepresentation as cr
 from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
-
-t = Time("2015-5-12 03:22")
+from scipy.integrate import ode
 
 mass_dictionary = {
 #Preliminary mass dictionary - I need to make this into a proper dictionary
@@ -18,7 +18,7 @@ mass_dictionary = {
 "mercury": 3.302e23 * u.kg,
 "venus": 4.8685e24 * u.kg,
 "earth": M_earth.value * u.kg,
-#"moon": 7.34767309e22 * u.kg,
+"moon": 7.34767309e22 * u.kg,
 "mars": 6.4185e23 * u.kg,
 "jupiter": M_jup.value * u.kg,
 "saturn": 5.6846e26 * u.kg,
@@ -27,11 +27,14 @@ mass_dictionary = {
 #"pluto": 1.305e22 * u.kg
 }
 
-def au_to_m(x): #it's a pain to make the .to function work with CartesianRepresentation
-    return cr(cr.get_xyz(x).to(u.m))
-
-def distance(a):
-    return (y - a).to(u.m)
+'''Initial time and fly-by times are given in Giorgini (2008) - given here
+    as Julian Day converted into seconds'''
+t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
+t_2006_2 = t_2006 + (61*86400)
+t_test = t_2006 + ((10*365 + 3)*86400)
+t_2029 = 2462239.5 * 86400 #April 13, 2029 21:45 UTC
+t_2036 = 2464796.875 * 86400 #April 13.375, 2036 UTC
+step_time_sec = 86400
 
 def quantity_sum(q): #As the numpy.sum function doesn't work with Quantity objects
     q_sum = 0
@@ -44,7 +47,8 @@ def gravity_newtonian(r, planet, time):
         planet: name of planet (string)
         time: astropy.Time object  '''
     planet_mass = mass_dictionary[planet]
-    planet_position = au_to_m(get_body_barycentric(planet, time))
+    planet_position_au = get_body_barycentric(planet, time)
+    planet_position = cr(cr.get_xyz(planet_position_au).to(u.m))
     planet_displacement = planet_position - r
     planet_distance = cr.norm(planet_displacement)
     magnitude = G * planet_mass / (planet_distance ** 2)
@@ -52,12 +56,33 @@ def gravity_newtonian(r, planet, time):
     return magnitude * direction
 
 def total_gravity_newtonian(r, time):
-    '''Total Newtonian gravitational acceleration from all planets in system.
-        time: astropy.Time object '''
+    '''Summed newtonian gravitational acceleration from all planets in system on
+        a body at position r.
+        Inputs:
+            time - astropy.Time object
+            r - Barycentric position  '''
     a = cr(0, 0, 0) * u.m / u.s**2
     for planet in mass_dictionary:
         a += gravity_newtonian(r, planet, time)
     return a
+
+def right_hand_side(t, y):
+    '''Presents the derivative ('right-hand side') of the state vector
+        in non-dimensional terms that the ode solvers can use.
+        Inputs:
+            t - time in Julian seconds (Julian days * 86400)
+            y - state vector - in m and m/s, but not including astropy units
+        Output:
+            Derivative / right-hand side of state vector, in m/s and m/s^2 '''
+
+    r = cr(y[0:3])*u.m
+    v = cr(y[3:6])*u.m/u.s
+    t_object = Time(t / 86400, format='jd')
+
+    dr = v
+    dv = total_gravity_newtonian(r, t_object)
+
+    return np.append(dr.get_xyz(), dv.get_xyz())
 
 def total_gravity_relativistic(time):
     #Relativistically corrected solution to the n-body problem, based on the formula in
@@ -130,21 +155,18 @@ def srp_acceleration(time):
     solar_flux = L_sun / (4*m.pi*solar_radius**2)
     return solar_radius
 
-epoch = 2453979.5
+#State vector found by coordinate_conversion file
+#state_vector_2006 = [77284178725.99854, 97009293555.25731, 38074307687.9599, \
+#-22425.48578517968, 22773.15626948283, 7896.270647539215]
+state_vector_2006 = [77727900266.26141, 97506424400.57415, 38271670918.17467, \
+-22433.44313337665, 22780.82765038258, 7899.674976924283]
 
-r_p = 0.7460599319224038 * au.value / 1000 #divide by 1000 to get kilometres
-e = 0.1910573105795565
-i = m.radians(3.33132242244163)
-asc_node = m.radians(204.45996801109067)
-a_of_p = m.radians(126.39643948747843)
-mean_anomaly = m.radians(61.41677858002747)
-epoch_JD2000_s = (epoch - 2451545.0)*86400
-GM_sun_km = GM_sun.value / 10**9
 
-keplerian_elements = [r_p, e, i, asc_node, a_of_p, mean_anomaly, epoch_JD2000_s, GM_sun_km]
-state_vector_km =  s.spiceypy.conics(keplerian_elements, epoch_JD2000_s)
-state_vector = state_vector_km * 1000
+test = ode(right_hand_side)
+test.set_initial_value(state_vector_2006, t_2006)
 
-r_apophis = cr(state_vector[0], state_vector[1], state_vector[2])*u.m
+print(test.y)
+while test.successful() and test.t < t_test:
+    test.integrate(test.t+step_time_sec)
 
-#print(total_gravity_newtonian(r_apophis, t))
+print(test.y)

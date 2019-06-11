@@ -1,97 +1,67 @@
-'''COORDINATE CONVERSION: Tests three different types of conversion systems from
-   barycentric Keplerian elements to barycentric Cartesian coordinates.
-   The range of these are then compared to that calculated by NASA JPL's
-   Horizon ephemeris system. '''
-
 import math as m
-import numpy as np
 import spiceypy as s
+import numpy as np
+import astropy.units as u
 
-from pytwobodyorbit import TwoBodyOrbit
-from astroquery.jplhorizons import Horizons
-from astropy.coordinates import get_body_barycentric, get_body_barycentric_posvel, \
-    CartesianRepresentation as cr
 from astropy.time import Time
 from astropy.constants import au, GM_sun
-from astropy import units as u
+from astropy.coordinates import SkyCoord, CartesianRepresentation as cr, \
+    get_body_barycentric_posvel
 
-def mean_to_eccentric(Me, ecc):
-    '''A simple Newton-Raphson root finder method to solve Kepler's
-        equation for the eccentric anomaly.
-        Me: mean anomaly
-        ecc: eccentric anomaly '''
+def ecl_to_eq(vec, ob=m.radians(23.4392911)):
+    result = ([vec[0],
+                    m.cos(ob)*vec[1] - m.sin(ob)*vec[2],
+                    m.sin(ob)*vec[1] + m.cos(ob)*vec[2]])
+    return result
 
-    E = Me
-    for i in range(10):
-        E = E - (E - ecc*m.sin(E) - Me)/(1-ecc*m.cos(E))
-    return E
+def eq_to_ecl(vec, ob=m.radians(23.4392911)):
+    result = ([vec[0],
+                    m.cos(ob)*vec[1] + m.sin(ob)*vec[2],
+                    -m.sin(ob)*vec[1] + m.cos(ob)*vec[2]])
+    return result
 
-#The epoch (in various time systems) of the given Apophis coordinates
-# from Giorgini(2008), September 1 2006 midnight
-epoch_JD = 2453979.5
-epoch_JD2000_s = (epoch_JD - 2451545.0)*86400
-epoch_time = Time(epoch_JD, format="jd")
 
-#Apophis coordinates, plus calculation of the other anomalies.
-a = 0.9222654975186300 * au.value #in metres
-e = 0.1910573105#795565
-i = 3.33132242244163 #All in DEGREES
-asc_node = 204.45996801109067
-a_of_p = 126.39643948747843
-mean_anomaly = 61.41677858002747
+'''The raw initial conditions given in the paper. Heliocentric osculating
+    Keplerian elements in the J2000 ecliptic frame.'''
 
-eccentric_anomaly = mean_to_eccentric(m.radians(mean_anomaly), e) #in radians
+r_p = 0.7460599319224038 #Perigee radius (AU)
+e = 0.1910573105795565 #Eccentricity
+i = 3.33132242244163 #Inclination (degrees)
+asc_node = 204.45996801109067 #Longitude of ascending node (degrees)
+a_of_p = 126.39643948747843 #Argument of periapsis (degrees)
+mean_anomaly = 61.41677858002747 #Mean anomaly (degrees)
+epoch = 2453979.5 #Epoch (Julian Day)
 
-true_anomaly_r = 2 * m.atan(((1+e)/(1-e))**.5 * m.tan(eccentric_anomaly/2))
-true_anomaly = m.degrees(true_anomaly_r)
-
-'''Conversion 1: TwoBodyOrbit package'''
-a_km = a / 1000
-initial_conditions = TwoBodyOrbit("Apophis", mu = GM_sun.value)
-initial_conditions.setOrbKepl(epoch_JD, a, e, i, asc_node, a_of_p, mean_anomaly)
-conversion_1 = initial_conditions.posvelatt(epoch_JD)[0]
-print("Conversion 1:", conversion_1)
-print("Range:", np.linalg.norm(conversion_1))
-
-'''Conversion 2: spiceypy (based on NASA SPICE)'''
-
-#Converts elements to radians and km, as required in spiceypy
+#Convert into correct form for spiceypy method
+r_p_km = r_p * au.value / 1000
 i_r = m.radians(i)
 asc_node_r = m.radians(asc_node)
 a_of_p_r = m.radians(a_of_p)
 mean_anomaly_r = m.radians(mean_anomaly)
-
-r_p = a_km*(1-e)
+epoch_JD2000_s = (epoch - 2451545.0)*86400
 GM_sun_km = GM_sun.value / 10**9
 
-conversion_2 = s.spiceypy.conics([r_p, e, i_r, asc_node_r, a_of_p_r, mean_anomaly_r, epoch_JD2000_s, GM_sun_km], epoch_JD2000_s)[0:3] * 1000
-print("Conversion 2:", conversion_2)
-print("Range:", np.linalg.norm(conversion_2))
+keplerian_elements = [r_p_km, e, i_r, asc_node_r, a_of_p_r, mean_anomaly_r, epoch_JD2000_s, GM_sun_km]
 
-'''Conversion 3: Self-calculated using equations from notes (Keplerian Motion 3)'''
-r_perifocal = a*(1-e**2) / (1 + e*m.cos(true_anomaly_r))
-r_perifocal_v = np.array([[r_perifocal * m.cos(true_anomaly_r)], [r_perifocal*m.sin(true_anomaly_r)], [0]])
+'''First, convert Keplerian elemets to a Cartesian state vector. Spiceypy gives it
+    in km and km/s.'''
+sv_helio_ecliptic_km =  s.spiceypy.conics(keplerian_elements, epoch_JD2000_s)
+sv_helio_ecliptic = sv_helio_ecliptic_km * 1000
 
-perifocal_to_reference = np.array([[m.cos(asc_node_r)*m.cos(a_of_p_r) - m.cos(i_r)*m.sin(asc_node_r)*m.sin(a_of_p_r),
--m.cos(asc_node_r)*m.sin(a_of_p_r)-m.cos(i_r)*m.cos(a_of_p_r)*m.sin(asc_node_r),
-m.sin(asc_node_r)*m.sin(i_r)],
+'''Then, convert from ecliptic to equatorial frame'''
 
-[m.cos(a_of_p_r)*m.sin(asc_node_r) + m.cos(asc_node_r)*m.cos(i_r)*m.sin(a_of_p_r),
-m.cos(asc_node_r)*m.cos(i_r)*m.cos(a_of_p_r) - m.sin(asc_node_r)*m.sin(a_of_p_r),
--m.cos(asc_node_r)*m.sin(i_r)],
+eps = m.radians(23.4392911) #obliquity to the ecliptic
+sv_helio_equatorial = []
+sv_helio_equatorial[0:3] = ecl_to_eq(sv_helio_ecliptic[0:3], eps)
+sv_helio_equatorial[3:6] = ecl_to_eq(sv_helio_ecliptic[3:6], eps)
 
-[m.sin(i_r)*m.sin(a_of_p_r),
-m.cos(a_of_p_r)*m.sin(i_r),
-m.cos(i_r)]])
+'''Then, convert from heliocentric to barycentric coordinates'''
+epoch_time = Time(epoch, format='jd')
+sun_posvel_au_d = get_body_barycentric_posvel('sun', epoch_time) #in AU and AU/d
+sun_posvel = []
+sun_posvel[0:3] = sun_posvel_au_d[0].get_xyz().to(u.m).value
+sun_posvel[3:6] = sun_posvel_au_d[1].get_xyz().to(u.m / u.s).value
 
-conversion_3 = np.dot(perifocal_to_reference, r_perifocal_v)
-print("Conversion 3:", conversion_3)
-print("Range:", np.linalg.norm(conversion_3))
+sv = np.add(sv_helio_equatorial, sun_posvel)
 
-'''Benchmark: JPL Horizons nominal position and range at epoch'''
-apophis = Horizons(id='Apophis', location='@0', epochs={'start':'2006-09-01', 'stop':'2006-09-02', 'step':'1d'})
-range = apophis.vectors()['range'][0] * au.value
-ra = m.radians(apophis.ephemerides(quantities=1)['RA'][0])
-dec = -m.radians(apophis.ephemerides(quantities=1)['DEC'][0])
-print("JPL Horizons calculated position: " , [range*m.cos(ra)*m.cos(dec), range*m.cos(dec)*m.sin(ra), range*m.sin(dec)])
-print("JPL Horizons calculated range:", range)
+print(sv)
