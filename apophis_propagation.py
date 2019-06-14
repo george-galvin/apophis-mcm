@@ -3,13 +3,14 @@ import math as m
 import spiceypy as s
 import matplotlib.pyplot as plt
 
-
 from astropy import units as u
 from astropy.time import Time, TimeDelta
 from astropy.coordinates import get_body_barycentric, get_body_barycentric_posvel, SkyCoord
-from astropy.coordinates import CartesianRepresentation as cr
+from astropy.coordinates import CartesianRepresentation as cr, solar_system_ephemeris
 from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
 from scipy.integrate import ode
+from astroquery.jplhorizons import Horizons
+from coordinate_conversion import ecl_to_eq
 
 mass_dictionary = {
 #Preliminary mass dictionary - I need to make this into a proper dictionary
@@ -30,11 +31,14 @@ mass_dictionary = {
 '''Initial time and fly-by times are given in Giorgini (2008) - given here
     as Julian Day converted into seconds'''
 t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
-t_2006_2 = t_2006 + (61*86400)
-t_test = t_2006 + ((10*365 + 3)*86400)
-t_2029 = 2462239.5 * 86400 #April 13, 2029 21:45 UTC
+t_test = t_2006 + ((5*365 + 1)*86400)
+t_2029 = 2462240.40625 * 86400 #April 13, 2029 21:45 UTC
 t_2036 = 2464796.875 * 86400 #April 13.375, 2036 UTC
 step_time_sec = 86400
+
+'''Sets ephemeris to DE405 '''
+solar_system_ephemeris.set("URL:https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/a_old_versions/de405.bsp")
+
 
 def quantity_sum(q): #As the numpy.sum function doesn't work with Quantity objects
     q_sum = 0
@@ -66,27 +70,12 @@ def total_gravity_newtonian(r, time):
         a += gravity_newtonian(r, planet, time)
     return a
 
-def right_hand_side(t, y):
-    '''Presents the derivative ('right-hand side') of the state vector
-        in non-dimensional terms that the ode solvers can use.
-        Inputs:
-            t - time in Julian seconds (Julian days * 86400)
-            y - state vector - in m and m/s, but not including astropy units
-        Output:
-            Derivative / right-hand side of state vector, in m/s and m/s^2 '''
-
-    r = cr(y[0:3])*u.m
-    v = cr(y[3:6])*u.m/u.s
-    t_object = Time(t / 86400, format='jd')
-
-    dr = v
-    dv = total_gravity_newtonian(r, t_object)
-
-    return np.append(dr.get_xyz(), dv.get_xyz())
-
-def total_gravity_relativistic(time):
+def total_gravity_relativistic(sv, time):
     #Relativistically corrected solution to the n-body problem, based on the formula in
     #   'propagation of large uncertainty sets...' (Einstein-Infeld-Hoffmann equations)
+    r_apophis = cr(sv[0:3])*u.m
+    v_apophis = cr(sv[3:6])*u.m/u.s
+
     beta = 1
     gamma = 1
     g_sum = cr(0 * u.m / u.s**2, 0 * u.m / u.s**2, 0 * u.m / u.s**2)
@@ -142,31 +131,70 @@ def total_gravity_relativistic(time):
 
     return g_sum
 
+def right_hand_side(t, y):
+    '''Presents the derivative ('right-hand side') of the state vector
+        in non-dimensional terms that the ode solvers can use.
+        Inputs:
+            t - time in Julian seconds (Julian days * 86400)
+            y - state vector - in m and m/s, but not including astropy units
+        Output:
+            Derivative / right-hand side of state vector, in m/s and m/s^2 '''
+
+    r = cr(y[0:3])*u.m
+    v = cr(y[3:6])*u.m/u.s
+    t_object = Time(t / 86400, format='jd')
+
+    dr = v
+    #dv = total_gravity_newtonian(r, t_object)
+    dv = total_gravity_relativistic(y, t_object)
+
+    return np.append(dr.get_xyz(), dv.get_xyz())
+
 def get_body_barycentric_acc(body, time):
     #Preliminary: uses numerical differentiation to estimate body acceleration
     interval = TimeDelta(1, format="jd")
-    v1 = get_body_barycentric_posvel(body, time-interval, ephemeris='de430')[1]
-    v2 = get_body_barycentric_posvel(body, time+interval, ephemeris='de430')[1]
+    v1 = get_body_barycentric_posvel(body, time-interval)[1]
+    v2 = get_body_barycentric_posvel(body, time+interval)[1]
 
     return (v2-v1)/(2*interval)
 
 def srp_acceleration(time):
-    solar_radius = cr.norm(r_apophis - get_body_barycentric("sun", time, ephemeris="de430"))
+    solar_radius = cr.norm(r_apophis - get_body_barycentric("sun", time))
     solar_flux = L_sun / (4*m.pi*solar_radius**2)
     return solar_radius
+
+def apophis_horizons_position(t):
+    '''Returns the equatorial position of Apophis at specified time (in m),
+        as given in the JPL Horizons ephemeris. Function purpose is to
+        compare this result to integrator's calculated position.
+        Input: Time (JD in seconds)'''
+
+    apophis = Horizons(id='Apophis', location='@0', epochs=t/86400)
+    v = apophis.vectors()
+    ecl_pos = [v['x'][0] * au.value, v['y'][0] * au.value, v['z'][0] * au.value]
+    return ecl_to_eq(ecl_pos)
 
 #State vector found by coordinate_conversion file
 #state_vector_2006 = [77284178725.99854, 97009293555.25731, 38074307687.9599, \
 #-22425.48578517968, 22773.15626948283, 7896.270647539215]
-state_vector_2006 = [77727900266.26141, 97506424400.57415, 38271670918.17467, \
--22433.44313337665, 22780.82765038258, 7899.674976924283]
+state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
+-22433.451271099162, 22780.815403058397, 7899.677821557445]
 
+def propagate(initial_state_vector, start_time, finish_time, step_time):
+    eph_norm_difference = []
+    times = []
+    test = ode(right_hand_side)
+    test.set_initial_value(state_vector_2006, t_2006)
+    print(test.y)
+    i = 0
+    while test.successful() and test.t < t_2029:
+        test.integrate(test.t+step_time_sec)
+        if (i % 30 == 0):
+            eph_norm_difference.append(np.linalg.norm(np.subtract(test.y[0:3], apophis_horizons_position(test.t))))
+            times.append((test.t - t_2006) / (86400 * 365.25) + 2006)
+            i += 1
+    return(test.y)
+    plt.plot(times, eph_norm_difference)
+    plt.show()
 
-test = ode(right_hand_side)
-test.set_initial_value(state_vector_2006, t_2006)
-
-print(test.y)
-while test.successful() and test.t < t_test:
-    test.integrate(test.t+step_time_sec)
-
-print(test.y)
+propagate(state_vector_2006, t_2006, t_2036, step_time_sec)
