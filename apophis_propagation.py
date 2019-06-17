@@ -9,30 +9,29 @@ from astropy.coordinates import get_body_barycentric, get_body_barycentric_posve
 from astropy.coordinates import CartesianRepresentation as cr, solar_system_ephemeris
 from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
 from scipy.integrate import ode
-from astroquery.jplhorizons import Horizons
-from coordinate_conversion import ecl_to_eq
+from propagation_functions import ecl_to_eq, distance_from_earth
 
 mass_dictionary = {
-#Preliminary mass dictionary - I need to make this into a proper dictionary
-#   of IAU2015 objects
+#From HORIZONS data
 "sun": M_sun.value * u.kg,
 "mercury": 3.302e23 * u.kg,
 "venus": 4.8685e24 * u.kg,
 "earth": M_earth.value * u.kg,
-"moon": 7.34767309e22 * u.kg,
-"mars": 6.4185e23 * u.kg,
+"moon": 7.349e22 * u.kg,
+"mars": 6.4171e23 * u.kg,
 "jupiter": M_jup.value * u.kg,
-"saturn": 5.6846e26 * u.kg,
-"uranus": 8.6832e25 * u.kg,
-"neptune": 1.0243e26 * u.kg,
-#"pluto": 1.305e22 * u.kg
+"saturn": 5.6834e26 * u.kg,
+"uranus": 8.6813e25 * u.kg,
+"neptune": 1.02413e26 * u.kg,
+"pluto": 1.307e22 * u.kg
 }
 
 '''Initial time and fly-by times are given in Giorgini (2008) - given here
     as Julian Day converted into seconds'''
 t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
-t_test = t_2006 + ((5*365 + 1)*86400)
+t_test = t_2006 + ((365)*86400)
 t_2029 = 2462240.40625 * 86400 #April 13, 2029 21:45 UTC
+t_2029_full = 2462288.5 * 86400 #June 1, 2029 00:00 UTC
 t_2036 = 2464796.875 * 86400 #April 13.375, 2036 UTC
 step_time_sec = 86400
 
@@ -71,8 +70,8 @@ def total_gravity_newtonian(r, time):
     return a
 
 def total_gravity_relativistic(sv, time):
-    #Relativistically corrected solution to the n-body problem, based on the formula in
-    #   'propagation of large uncertainty sets...' (Einstein-Infeld-Hoffmann equations)
+    '''Calculates the gravitational acceleration on a body with given
+    state vector and time, corrected for relativity.'''
     r_apophis = cr(sv[0:3])*u.m
     v_apophis = cr(sv[3:6])*u.m/u.s
 
@@ -158,43 +157,26 @@ def get_body_barycentric_acc(body, time):
 
     return (v2-v1)/(2*interval)
 
-def srp_acceleration(time):
-    solar_radius = cr.norm(r_apophis - get_body_barycentric("sun", time))
-    solar_flux = L_sun / (4*m.pi*solar_radius**2)
-    return solar_radius
-
-def apophis_horizons_position(t):
-    '''Returns the equatorial position of Apophis at specified time (in m),
-        as given in the JPL Horizons ephemeris. Function purpose is to
-        compare this result to integrator's calculated position.
-        Input: Time (JD in seconds)'''
-
-    apophis = Horizons(id='Apophis', location='@0', epochs=t/86400)
-    v = apophis.vectors()
-    ecl_pos = [v['x'][0] * au.value, v['y'][0] * au.value, v['z'][0] * au.value]
-    return ecl_to_eq(ecl_pos)
-
 #State vector found by coordinate_conversion file
-#state_vector_2006 = [77284178725.99854, 97009293555.25731, 38074307687.9599, \
-#-22425.48578517968, 22773.15626948283, 7896.270647539215]
+
 state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
 -22433.451271099162, 22780.815403058397, 7899.677821557445]
 
 def propagate(initial_state_vector, start_time, finish_time, step_time):
-    eph_norm_difference = []
     times = []
+    distances_from_earth = []
     test = ode(right_hand_side)
-    test.set_initial_value(state_vector_2006, t_2006)
-    print(test.y)
-    i = 0
-    while test.successful() and test.t < t_2029:
-        test.integrate(test.t+step_time_sec)
-        if (i % 30 == 0):
-            eph_norm_difference.append(np.linalg.norm(np.subtract(test.y[0:3], apophis_horizons_position(test.t))))
-            times.append((test.t - t_2006) / (86400 * 365.25) + 2006)
-            i += 1
-    return(test.y)
-    plt.plot(times, eph_norm_difference)
+    test.set_integrator("dopri5")
+    test.set_initial_value(initial_state_vector, start_time)
+    while test.successful() and test.t < finish_time:
+        test.integrate(test.t+step_time)
+        if (test.t / 86400 >= 2462137.5): #only times in 2029
+            distances_from_earth.append(distance_from_earth(test.y[0:3], test.t))
+            times.append(test.t / 86400)
+    x = np.argmin(distances_from_earth)
+    print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
+    plt.plot(times, distances_from_earth)
     plt.show()
+    return(test.y)
 
-propagate(state_vector_2006, t_2006, t_2036, step_time_sec)
+propagate(state_vector_2006, t_2006, t_2029_full, step_time_sec)
