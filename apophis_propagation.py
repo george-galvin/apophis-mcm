@@ -1,6 +1,5 @@
 import numpy as np
 import math as m
-import spiceypy as s
 import matplotlib.pyplot as plt
 
 from astropy import units as u
@@ -9,7 +8,7 @@ from astropy.coordinates import get_body_barycentric, get_body_barycentric_posve
 from astropy.coordinates import CartesianRepresentation as cr, solar_system_ephemeris
 from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
 from scipy.integrate import ode
-from propagation_functions import ecl_to_eq, distance_from_earth
+from propagation_functions import distance_from_earth
 
 mass_dictionary = {
 #From HORIZONS data
@@ -130,6 +129,14 @@ def total_gravity_relativistic(sv, time):
 
     return g_sum
 
+def get_body_barycentric_acc(body, time):
+    #Preliminary: uses numerical differentiation to estimate body acceleration
+    interval = TimeDelta(1, format="jd")
+    v1 = get_body_barycentric_posvel(body, time-interval)[1]
+    v2 = get_body_barycentric_posvel(body, time+interval)[1]
+
+    return (v2-v1)/(2*interval)
+
 def right_hand_side(t, y):
     '''Presents the derivative ('right-hand side') of the state vector
         in non-dimensional terms that the ode solvers can use.
@@ -149,14 +156,6 @@ def right_hand_side(t, y):
 
     return np.append(dr.get_xyz(), dv.get_xyz())
 
-def get_body_barycentric_acc(body, time):
-    #Preliminary: uses numerical differentiation to estimate body acceleration
-    interval = TimeDelta(1, format="jd")
-    v1 = get_body_barycentric_posvel(body, time-interval)[1]
-    v2 = get_body_barycentric_posvel(body, time+interval)[1]
-
-    return (v2-v1)/(2*interval)
-
 #State vector found by coordinate_conversion file
 
 state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
@@ -170,7 +169,10 @@ def propagate(initial_state_vector, start_time, finish_time, step_time):
     test.set_initial_value(initial_state_vector, start_time)
     while test.successful() and test.t < finish_time:
         test.integrate(test.t+step_time)
-        if (test.t / 86400 >= 2462137.5): #only times in 2029
+        if (test.t / 86400 < 2462200.5):
+            test.integrate(test.t+step_time)
+        else:
+            test.integrate(test.t+step_time/100)
             distances_from_earth.append(distance_from_earth(test.y[0:3], test.t))
             times.append(test.t / 86400)
     x = np.argmin(distances_from_earth)
@@ -178,5 +180,7 @@ def propagate(initial_state_vector, start_time, finish_time, step_time):
     plt.plot(times, distances_from_earth)
     plt.show()
     return(test.y)
+
+
 
 propagate(state_vector_2006, t_2006, t_2029_full, step_time_sec)
