@@ -1,6 +1,7 @@
 import numpy as np
 import math as m
 import matplotlib.pyplot as plt
+import time as tm
 
 from astropy import units as u
 from astropy.time import Time, TimeDelta
@@ -30,7 +31,7 @@ mass_dictionary = {
 t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
 t_test = t_2006 + ((365)*86400)
 t_2029 = 2462240.40625 * 86400 #April 13, 2029 21:45 UTC
-t_2029_full = 2462288.5 * 86400 #June 1, 2029 00:00 UTC
+t_2029_full = 2462245.5 * 86400
 t_2036 = 2464796.875 * 86400 #April 13.375, 2036 UTC
 step_time_sec = 86400
 
@@ -63,10 +64,18 @@ def total_gravity_newtonian(r, time):
         Inputs:
             time - astropy.Time object
             r - Barycentric position  '''
-    a = cr(0, 0, 0) * u.m / u.s**2
+    g_sum = cr(0, 0, 0) * u.m / u.s**2
     for planet in mass_dictionary:
-        a += gravity_newtonian(r, planet, time)
-    return a
+        g_sum += gravity_newtonian(r, planet, time)
+    return g_sum
+
+def get_body_barycentric_acc(body, time):
+    #Preliminary: uses numerical differentiation to estimate body acceleration
+    interval = TimeDelta(1, format="jd")
+    v1 = get_body_barycentric_posvel(body, time-interval)[1]
+    v2 = get_body_barycentric_posvel(body, time+interval)[1]
+
+    return (v2-v1)/(2*interval)
 
 def total_gravity_relativistic(sv, time):
     '''Calculates the gravitational acceleration on a body with given
@@ -129,13 +138,15 @@ def total_gravity_relativistic(sv, time):
 
     return g_sum
 
-def get_body_barycentric_acc(body, time):
-    #Preliminary: uses numerical differentiation to estimate body acceleration
-    interval = TimeDelta(1, format="jd")
-    v1 = get_body_barycentric_posvel(body, time-interval)[1]
-    v2 = get_body_barycentric_posvel(body, time+interval)[1]
+def total_gravity_relativistic_light(r, time):
+    r_sun = get_body_barycentric("sun", time)
+    r_apophis_sun = r - r_sun
 
-    return (v2-v1)/(2*interval)
+    term1 = total_gravity_newtonian(r, time)
+
+    term2 = 3 * ((GM_sun)/c)**2 * (r_apophis_sun / cr.norm(r_apophis_sun)**4)
+
+    return term1 + term2
 
 def right_hand_side(t, y):
     '''Presents the derivative ('right-hand side') of the state vector
@@ -151,8 +162,9 @@ def right_hand_side(t, y):
     t_object = Time(t / 86400, format='jd')
 
     dr = v
-    #dv = total_gravity_newtonian(r, t_object)
-    dv = total_gravity_relativistic(y, t_object)
+    dv = total_gravity_newtonian(r, t_object)
+    #dv = total_gravity_relativistic_light(r, t_object)
+    #dv = total_gravity_relativistic(y, t_object)
 
     return np.append(dr.get_xyz(), dv.get_xyz())
 
@@ -162,6 +174,7 @@ state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
 -22433.451271099162, 22780.815403058397, 7899.677821557445]
 
 def propagate(initial_state_vector, start_time, finish_time, step_time):
+    t0 = tm.clock()
     times = []
     distances_from_earth = []
     test = ode(right_hand_side)
@@ -169,7 +182,7 @@ def propagate(initial_state_vector, start_time, finish_time, step_time):
     test.set_initial_value(initial_state_vector, start_time)
     while test.successful() and test.t < finish_time:
         test.integrate(test.t+step_time)
-        if (test.t / 86400 < 2462200.5):
+        if (test.t / 86400 < 2462235.5):
             test.integrate(test.t+step_time)
         else:
             test.integrate(test.t+step_time/100)
@@ -177,10 +190,9 @@ def propagate(initial_state_vector, start_time, finish_time, step_time):
             times.append(test.t / 86400)
     x = np.argmin(distances_from_earth)
     print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
+    print("Propagation time:", tm.clock())
     plt.plot(times, distances_from_earth)
     plt.show()
     return(test.y)
 
-
-
-propagate(state_vector_2006, t_2006, t_2029_full, step_time_sec)
+#propagate(state_vector_2006, t_2006, t_2029_full, step_time_sec)
