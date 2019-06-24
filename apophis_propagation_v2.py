@@ -9,7 +9,6 @@ from astropy.coordinates import get_body_barycentric, get_body_barycentric_posve
 from astropy.coordinates import CartesianRepresentation as cr, solar_system_ephemeris
 from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
 from scipy.integrate import ode
-from propagation_functions import distance_from_earth
 from MultistepRadau import MultistepRadau
 from numpy.linalg import norm
 
@@ -61,6 +60,9 @@ class ApophisPropagation():
     "pluto": 1.307e22
     }
 
+    def name(self):
+        return "Apophis"
+
     def _gravity_newtonian(self, r, planet, t):
         '''Newtonian gravitational acceleration from specified planet.
             planet: name of planet (string)
@@ -104,6 +106,12 @@ class ApophisPropagation():
         for i in q:
             q_sum += i
         return q_sum
+
+    def _distance_from_earth(self, r, t):
+        time_object = Time(t/86400, format="jd")
+        earth_position = get_body_barycentric("earth", time_object)
+        earth_position_nd = earth_position.get_xyz().to(u.m).value
+        return np.linalg.norm(r - earth_position_nd)
 
     def _total_gravity_relativistic(self, t, y):
         '''Calculates the gravitational acceleration on a body with given
@@ -169,9 +177,9 @@ class ApophisPropagation():
 
             i += 1
 
-        return g_sum
+        return np.append(v_apophis, g_sum)
 
-    def _total_gravity_relativistic_light(self, t, y):
+    def _total_gravity_relativistic_light_old(self, t, y):
         r = y[0:3]
         time = Time(t/86400, format="jd")
 
@@ -186,19 +194,38 @@ class ApophisPropagation():
 
         return np.append(rdot, vdot)
 
-    def gravity(self, gravity_model="relativistic_light"):
-        t_object = Time(self.start_time / 86400, format="jd")
-        y = self.initial_state_vector
-        r = cr(y[0:3]) * u.m
+    def _total_gravity_relativistic_light(self, t, y):
+        r = y[0:3]
+        v = y[3:6]
+        time = Time(t/86400, format="jd")
 
-        if gravity_model == "newtonian":
-            acc = self._total_gravity_newtonian(y, self.start_time)
-        elif gravity_model == "relativistic_light":
-            acc = self._total_gravity_relativistic_light(y, self.start_time)
-        elif gravity_model == "relativistic":
-            acc = self._total_gravity_relativistic(y, self.start_time)
+        sv_sun = get_body_barycentric_posvel("sun", time)
 
-        return acc
+        r_sun = sv_sun[0].get_xyz().to(u.m).value
+        r_apophis_sun = r - r_sun
+
+        v_sun = sv_sun[1].get_xyz().to(u.m/u.s).value
+        v_apophis_sun = v - v_sun
+
+        term1 = self._total_gravity_newtonian(t, y)[3:6]
+
+        term2 = GM_sun.value/(c.value**2 * norm(r_apophis_sun)**3)
+
+        term3 = ((4 * GM_sun.value / norm(r_apophis_sun)) - norm(v_apophis_sun)**2)*r_apophis_sun
+
+        term4 = 4*np.dot(r_apophis_sun, v_apophis_sun)*v_apophis_sun
+
+        rdot = v
+        vdot = term1 + term2*(term3 + term4)
+
+        return np.append(rdot, vdot)
+
+    def all_gravities(self):
+        print(np.ndarray.tolist(self._total_gravity_newtonian(self.start_time, self.initial_state_vector)))
+        print(np.ndarray.tolist(self._total_gravity_relativistic_light(self.start_time, self.initial_state_vector)))
+        print(np.ndarray.tolist(self._total_gravity_relativistic_med(self.start_time, self.initial_state_vector)))
+        print(np.ndarray.tolist(self._total_gravity_relativistic(self.start_time, self.initial_state_vector)))
+
     def Propagate(self, finish_time, step_time, gravity_model="relativistic_light"):
         if gravity_model == "newtonian":
             rhs = self._total_gravity_newtonian
@@ -216,6 +243,16 @@ class ApophisPropagation():
         while test.successful() and test.t < finish_time:
             test.integrate(test.t+step_time)
         return(test.y)
+
+    def PropagateMCM(self, finish_time, step_time, gravity_model="relativistic_light"):
+        if gravity_model == "newtonian":
+            rhs = self._total_gravity_newtonian
+        elif gravity_model == "relativistic":
+            rhs = self._total_gravity_relativistic
+        elif gravity_model == "relativistic_light":
+            rhs = self._total_gravity_relativistic_light
+        mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = finish_time, h=step_time, totalIntegrands=6, problem=self)
+        print(mcm.Integrate())
 
     def ClosestApproach(self, step_time, gravity_model="relativistic_light"):
         if gravity_model == "newtonian":
@@ -238,11 +275,11 @@ class ApophisPropagation():
                 test.integrate(test.t+step_time)
             elif (test.t > 2462239.5*86400) and (test.t < 2462240.5*86400):
                 test.integrate(test.t+step_time/800)
-                distances_from_earth.append(distance_from_earth(test.y[0:3], test.t))
+                distances_from_earth.append(self._distance_from_earth(test.y[0:3], test.t))
                 times.append(test.t / 86400)
             else:
                 test.integrate(test.t+step_time/100)
-                distances_from_earth.append(distance_from_earth(test.y[0:3], test.t))
+                distances_from_earth.append(self._distance_from_earth(test.y[0:3], test.t))
                 times.append(test.t / 86400)
 
         x = np.argmin(distances_from_earth)
@@ -252,5 +289,13 @@ class ApophisPropagation():
         plt.show()
 
 
+#def propagate_mcm(initial_state_vector, start_time, finish_time, step_time):
+#    a = ApophisPropagation(initial_state_vector, start_time)
+#    mcm = MultistepRadau(f=right_hand_side, y0=initial_state_vector, t0=start_time, tEnd=finish_time, h=step_time_sec, totalIntegrands=6)
+#    result = mcm.Integrate()
+#    return result
+
+
+
 a = ApophisPropagation(state_vector_2006, t_2006)
-a.ClosestApproach(step_time=seconds_per_day, gravity_model = "relativistic_light")
+a.PropagateMCM(t_test, seconds_per_day)
