@@ -28,7 +28,7 @@ state_vector_2019_horizons = [110902901314.6609, 38080320887.97272, 17020446307.
 
 ''' Times - Seconds past JD 0 '''
 t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
-t_test = t_2006 + ((365)*86400) #Test time, can be changed
+t_test = t_2006 + ((5)*86400) #Test time, can be changed
 t_2029_before = 2462235.5 * 86400 #April 8, 2029 00:00 UTC
 t_2029 = 2462240.40625 * 86400 #April 13, 2029 21:45 UTC
 t_2029_after = 2462245.5 * 86400 #April 18, 2029 00:00 UTC
@@ -84,7 +84,7 @@ class ApophisPropagation():
                 time - astropy.Time object
                 r - Barycentric position  '''
         r = y[0:3]
-        g_sum = (0, 0, 0)
+        g_sum = [0, 0, 0]
 
         for planet in self.mass_dictionary:
             g_sum += self._gravity_newtonian(r, planet, t)
@@ -121,7 +121,7 @@ class ApophisPropagation():
 
         beta = 1
         gamma = 1
-        g_sum = (0, 0, 0)
+        g_sum = [0, 0, 0]
         m=[]
         r_vec=[]
         r=[]
@@ -179,21 +179,6 @@ class ApophisPropagation():
 
         return np.append(v_apophis, g_sum)
 
-    def _total_gravity_relativistic_light_old(self, t, y):
-        r = y[0:3]
-        time = Time(t/86400, format="jd")
-
-        r_sun = get_body_barycentric("sun", time).get_xyz().to(u.m).value
-        r_apophis_sun = r - r_sun
-
-        term1 = self._total_gravity_newtonian(t, y)[3:6]
-
-        term2 = 3 * ((GM_sun.value)/c.value)**2 * (r_apophis_sun / norm(r_apophis_sun)**4)
-        rdot = y[3:6]
-        vdot = term1 + term2
-
-        return np.append(rdot, vdot)
-
     def _total_gravity_relativistic_light(self, t, y):
         r = y[0:3]
         v = y[3:6]
@@ -216,7 +201,7 @@ class ApophisPropagation():
         term4 = 4*np.dot(r_apophis_sun, v_apophis_sun)*v_apophis_sun
 
         rdot = v
-        vdot = term1 + term2*(term3 + term4)
+        vdot = term1 + term2 * (term3 + term4)
 
         return np.append(rdot, vdot)
 
@@ -252,7 +237,9 @@ class ApophisPropagation():
         elif gravity_model == "relativistic_light":
             rhs = self._total_gravity_relativistic_light
         mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = finish_time, h=step_time, totalIntegrands=6, problem=self)
-        print(mcm.Integrate())
+        t, y = mcm.Integrate()
+
+        return y[:,-1]
 
     def ClosestApproach(self, step_time, gravity_model="relativistic_light"):
         if gravity_model == "newtonian":
@@ -288,14 +275,37 @@ class ApophisPropagation():
         plt.plot(times, distances_from_earth)
         plt.show()
 
+    def ClosestApproachMCM(self, step_time, gravity_model="relativistic_light",  k=1, s=5):
+        if gravity_model == "newtonian":
+            rhs = self._total_gravity_newtonian
+        elif gravity_model == "relativistic":
+            rhs = self._total_gravity_relativistic
+        elif gravity_model == "relativistic_light":
+            rhs = self._total_gravity_relativistic_light
+        mcm_1 = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self)
+        t, y = mcm.Integrate()
 
-#def propagate_mcm(initial_state_vector, start_time, finish_time, step_time):
-#    a = ApophisPropagation(initial_state_vector, start_time)
-#    mcm = MultistepRadau(f=right_hand_side, y0=initial_state_vector, t0=start_time, tEnd=finish_time, h=step_time_sec, totalIntegrands=6)
-#    result = mcm.Integrate()
-#    return result
+        mcm_2 = MultistepRadau(f=rhs, y0=y[:, -1], t0=t, tEnd=2462239.5*86400, h=step_time/100, totalIntegrands=6, problem=self)
+        t2, y2 = mcm2.integrate()
 
+        mcm_3 = MultistepRadau(f=rhs, y0=y1[:, -1], t0=t2, tEnd = 2462240.5*86400, h=step_time/800, totalIntegrands=6, problem=self)
+        t3, y3 = mcm3.Integrate()
 
+        distances_from_earth = []
+        times = []
+
+        for i in range(len(y2)):
+            distances_from_earth.append(self._distance_from_earth(y2[i][0:3], t2[i]))
+            times.append(t2[i]/86400)
+        for i in range(len(y3)):
+            distances_from_earth.append(self._distance_from_earth(y3[i][0:3], t3[i]))
+            times.append(t3[i]/86400)
+
+        x = np.argmin(distances_from_earth)
+        print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
+        print("Propagation time:", tm.perf_counter() - t0)
+        plt.plot(times, distances_from_earth)
+        plt.show()
 
 a = ApophisPropagation(state_vector_2006, t_2006)
-a.PropagateMCM(t_test, seconds_per_day)
+print(a._total_gravity_newtonian(t_2006, state_vector_2006))
