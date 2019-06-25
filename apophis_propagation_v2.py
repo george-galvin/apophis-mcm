@@ -45,7 +45,7 @@ class ApophisPropagation():
         solar_system_ephemeris.set("URL:https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/a_old_versions/de405.bsp")
 
 
-    mass_dictionary = {
+    '''mass_dictionary = {
     #From HORIZONS data
     "sun": M_sun.value,
     "mercury": 3.302e23,
@@ -58,8 +58,23 @@ class ApophisPropagation():
     "uranus": 8.6813e25,
     "neptune": 1.02413e26,
     "pluto": 1.307e22
-    }
+    }'''
 
+    mass_dictionary = {
+    #From DE405
+    "sun": M_sun.value,
+    "mercury": 3.301e23,
+    "venus": 4.867e24,
+    "earth": 5.972e24,
+    "moon": 7.346e22,
+    "mars": 6.417e23,
+    "jupiter": 1.899e27,
+    "saturn": 5.685e26,
+    "uranus": 8.682e25,
+    "neptune": 1.024e26,
+    "pluto": 1.307e22
+    }
+	
     def name(self):
         return "Apophis"
 
@@ -282,30 +297,44 @@ class ApophisPropagation():
             rhs = self._total_gravity_relativistic
         elif gravity_model == "relativistic_light":
             rhs = self._total_gravity_relativistic_light
+			
+		
+		
         mcm_1 = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self)
-        t, y = mcm.Integrate()
+        t1, y1 = mcm_1.Integrate()
 
-        mcm_2 = MultistepRadau(f=rhs, y0=y[:, -1], t0=t, tEnd=2462239.5*86400, h=step_time/100, totalIntegrands=6, problem=self)
-        t2, y2 = mcm2.integrate()
+        print(y1[:, -1])
 
-        mcm_3 = MultistepRadau(f=rhs, y0=y1[:, -1], t0=t2, tEnd = 2462240.5*86400, h=step_time/800, totalIntegrands=6, problem=self)
-        t3, y3 = mcm3.Integrate()
+        mcm_2 = MultistepRadau(f=rhs, y0=y1[:, -1], t0=t1[-1], tEnd=2462239.5*86400, h=step_time/100, totalIntegrands=6, problem=self)
+        t2, y2 = mcm_2.Integrate()
+
+        print(y2[:, -1])
+
+        mcm_3 = MultistepRadau(f=rhs, y0=y2[:, -1], t0=t2[-1], tEnd = 2462240.5*86400, h=step_time/800, totalIntegrands=6, problem=self)
+        t3, y3 = mcm_3.Integrate()
+
+        print(y3[:, -1])
 
         distances_from_earth = []
         times = []
 
+        print(
+        
         for i in range(len(y2)):
-            distances_from_earth.append(self._distance_from_earth(y2[i][0:3], t2[i]))
+            distances_from_earth.append(self._distance_from_earth(y2[0:3, i], t2[i]))
             times.append(t2[i]/86400)
         for i in range(len(y3)):
-            distances_from_earth.append(self._distance_from_earth(y3[i][0:3], t3[i]))
+            distances_from_earth.append(self._distance_from_earth(y3[0:3, i], t3[i]))
             times.append(t3[i]/86400)
 
         x = np.argmin(distances_from_earth)
+
+        print(distances_from_earth)
         print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
-        print("Propagation time:", tm.perf_counter() - t0)
+        #print("Propagation time:", tm.perf_counter() - t0)
         plt.plot(times, distances_from_earth)
         plt.show()
-
+        return 0
+        
 a = ApophisPropagation(state_vector_2006, t_2006)
-print(a._total_gravity_newtonian(t_2006, state_vector_2006))
+print(a.ClosestApproachMCM(seconds_per_day))
