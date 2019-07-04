@@ -2,11 +2,13 @@ from astropy.coordinates import get_body_barycentric, SkyCoord
 from astropy.coordinates import CartesianRepresentation as cr
 from astropy.time import Time
 from astropy.constants import au
-from coordinate_conversion import eq_to_ecl
+from propagation_functions import eq_to_ecl
+from matplotlib.animation import FuncAnimation
 
 import astropy.units as u
 import matplotlib.pyplot as plt
 import math as m
+import numpy as np
 
 r_2006 = cr(7.77278540e+10,  9.75064700e+10,  3.82716654e+10) * u.m
 r_2029 = cr(8.34161229e+10,  8.87920745e+10,  3.50113157e+10) * u.m
@@ -57,4 +59,49 @@ def plot_solar_system(time, num_of_bodies = 9, r_body = None):
     plt.ylabel("y (AU)")
     plt.show()
 
-plot_solar_system(t_2029, 5, r_2029)
+plt.style.use('dark_background')
+fig, ax = plt.subplots()
+
+xdata = np.zeros(8)
+ydata = np.zeros(8)
+cdata = ('#ffff00', '#808080', '#ffff80', '#0000ff', '#a02020', '#ff8000', '#ffffa0','#a0a0ff', '#9090e0')
+time_count = 0
+
+def init():
+    return []
+
+def update(frame, t, sv=None, num_of_bodies=8):
+    plotlist = []
+    plt.cla()
+    ax.set_xlim(-5, 5)
+    ax.set_ylim(-5, 5)
+    time_object = Time(t[frame], format="jd")
+    apophis_position_eq = sv[1:3, frame]
+    [x, y, z] = eq_to_ecl(apophis_position_eq)
+    xdata[i] = x
+    ydata[i] = y
+    plotlist.append(x)
+    plotlist.append(y)
+    plotlist.append('#ffffff')
+
+    for i in range(num_of_bodies):
+        position_eq = get_body_barycentric(bodies[i], time_object).get_xyz().value
+        [x, y, z] = eq_to_ecl(position_eq)
+        xdata[i] = x
+        ydata[i] = y
+        plotlist.append(x)
+        plotlist.append(y)
+        plotlist.append(cdata[i])
+
+    animlist = plt.plot(*plotlist, marker='o')
+    time_object.format = "isot"
+    plt.title(time_object.value[0:10])
+    return animlist
+
+def animate_solar_system(t, y=None):
+    ani = FuncAnimation(fig, update, frames=range(len(t)),
+                    init_func=init, fargs=(t,y,))
+    plt.show()
+
+t = np.arange(2453979.5, 2462245.5, 1)
+animate_solar_system(t)
