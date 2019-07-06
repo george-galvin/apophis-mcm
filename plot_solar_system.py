@@ -75,20 +75,16 @@ def update(frame, t, sv=None, num_of_bodies=8):
     plt.cla()
     ax.set_xlim(-5, 5)
     ax.set_ylim(-5, 5)
-    time_object = Time(t[frame], format="jd")
-    apophis_position_eq = sv[1:3, frame]
+    time_object = Time(t[frame]/86400, format="jd")
+    apophis_position_eq = [a / au.value for a in sv[0:3, frame]] 
     [x, y, z] = eq_to_ecl(apophis_position_eq)
-    xdata[i] = x
-    ydata[i] = y
     plotlist.append(x)
     plotlist.append(y)
     plotlist.append('#ffffff')
 
     for i in range(num_of_bodies):
-        position_eq = get_body_barycentric(bodies[i], time_object).get_xyz().value
+        position_eq = get_body_barycentric(bodies[i], time_object).get_xyz().to(u.au).value
         [x, y, z] = eq_to_ecl(position_eq)
-        xdata[i] = x
-        ydata[i] = y
         plotlist.append(x)
         plotlist.append(y)
         plotlist.append(cdata[i])
@@ -103,5 +99,3 @@ def animate_solar_system(t, y=None):
                     init_func=init, fargs=(t,y,))
     plt.show()
 
-t = np.arange(2453979.5, 2462245.5, 1)
-animate_solar_system(t)
