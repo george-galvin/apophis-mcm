@@ -2,6 +2,7 @@ import numpy as np
 import math as m
 import matplotlib.pyplot as plt
 import time as tm
+import spiceypy as spice
 
 from astropy import units as u
 from astropy.time import Time, TimeDelta
@@ -12,6 +13,7 @@ from scipy.integrate import ode, solve_ivp
 from MultistepRadau import MultistepRadau
 from plot_solar_system import animate_solar_system
 from numpy.linalg import norm
+from jplephem.spk import SPK
 
 '''STATE VECTORS'''
 
@@ -43,7 +45,6 @@ class ApophisPropagation():
         self.initial_state_vector = initial_state_vector
         self.start_time = start_time        
         solar_system_ephemeris.set("URL:https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/a_old_versions/de405.bsp")
-        
 
     '''mass_dictionary = {
     #From HORIZONS data
@@ -362,8 +363,6 @@ class ApophisPropagation():
         print("Relative velocity:", relative_velocity)
         print("Maximum discretisation error", relative_velocity * (step_time/2000000))
 
-        print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
-        print("Propagation time:", tm.perf_counter() - start_clock)
         plt.plot(times, distances_from_earth)
         plt.show()
         return t1, y1
@@ -441,6 +440,6 @@ class ApophisPropagation():
         return t1, y1
 
 a = ApophisPropagation(state_vector_2006, t_2006)
-a.ClosestApproachScipy(seconds_per_day, integrator="RK45", gravity_model="relativistic")
+a.ClosestApproachScipy(seconds_per_day/4, integrator="RK45", gravity_model="relativistic_light")
 #t, y = a.ClosestApproachMCM(seconds_per_day*2, gravity_model="newtonian", k=3, s=4)
 #animate_solar_system(t, y)
