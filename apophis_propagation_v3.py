@@ -4,13 +4,20 @@ import matplotlib.pyplot as plt
 import time as tm
 import spiceypy as spice
 
-from astropy.constants import G, c, L_sun, M_sun, M_jup, M_earth, GM_sun, au
+from astropy.constants import M_sun, M_earth, GM_sun, au
 from scipy.integrate import ode, solve_ivp
 from MultistepRadau import MultistepRadau
 from numpy.linalg import norm
 
 spice.furnsh("de405.bsp")
 spice.furnsh("naif0009.tls")
+
+au = 149598770691
+c = 299792458
+G = 6.67408e-11
+
+#GM_sun = 1.32712440017987e20
+#M_earth = 
 
 '''STATE VECTORS'''
 
@@ -30,10 +37,8 @@ state_vector_2019_horizons = [110902901314.6609, 38080320887.97272, 17020446307.
 #t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
 t_2006 = spice.str2et('Sep 1, 2006')
 t_test = t_2006 + ((5)*86400) #Test time, can be changed
-t_2029_before = spice.str2et('Apr 8, 2029') #April 8, 2029 00:00 UTC
-t_2029 = 2462240.40625 * 86400 #April 13, 2029 21:45 UTC
-t_2029_after = spice.str2et('April 18, 2029') #April 18, 2029 00:00 UTC
-t_2036 = 2464796.875 * 86400 #April 13.375, 2036 UTC
+t_2029_before = spice.str2et('Apr 8, 2029') 
+t_2029_after = spice.str2et('April 18, 2029') 
 
 seconds_per_day = 86400
 
@@ -43,36 +48,33 @@ class ApophisPropagation():
         self.initial_state_vector = initial_state_vector
         self.start_time = start_time        
 
-
-    mass_dictionary = {
-    #From HORIZONS data
-    "sun": M_sun.value,
-    "mercury barycenter": 3.302e23,
-    "venus barycenter": 4.8685e24,
-    "earth barycenter": M_earth.value,
-    "moon": 7.349e22,
-    "mars barycenter": 6.4171e23,
-    "jupiter barycenter": M_jup.value,
-    "saturn barycenter": 5.6834e26,
-    "uranus barycenter": 8.6813e25,
-    "neptune barycenter": 1.02413e26,
-    "pluto barycenter": 1.307e22
-    }
-
-    '''mass_dictionary = {
-    #From DE405
-    "sun": M_sun.value,
-    "mercury barycenter": 3.301e23,
-    "venus barycenter": 4.867e24,
-    "earth barycenter": 5.972e24,
-    "moon": 7.349e22,
-    "mars barycenter": 6.417e23,
-    "jupiter barycenter": 1.899e27,
-    "saturn barycenter": 5.685e26,
-    "uranus barycenter": 8.682e25,
-    "neptune barycenter": 1.024e26,
-    "pluto barycenter": 1.307e22
+    '''gm_dictionary = {
+        "sun": 1.32712440017987e20,
+        "mercury barycenter": 2.2032080e13,
+        "venus barycenter": 3.24858599e14,
+        "earth barycenter": 3.96800433e14,
+        "moon": 4.902801e12,
+        "mars barycenter": 4.2828314e13,
+        "jupiter barycenter": 1.26712767863e17,
+        "saturn barycenter": 3.7940626063e16,
+        "uranus barycenter": 5.794549007e15,
+        "neptune barycenter": 6.836534064e15,
+        "pluto barycenter": 9.81601e11
     }'''
+
+    gm_dictionary = {
+        "sun": 1.32712440017987e20,
+        "mercury barycenter": 0.4912547451450812e-10 * (au**3) / (86400**2),
+        "venus barycenter": 0.7243452486162703e-9 * (au**3) / (86400**2),
+        "earth barycenter": 0.8887692390113509e-9 * (au**3) / (86400**2),
+        "moon": 0.1093189565989898e-10 * (au**3) / (86400**2),
+        "mars barycenter": 0.9594535105779258e-10 * (au**3) / (86400**2),
+        "jupiter barycenter": 0.2825345909524226e-6 * (au**3) / (86400**2),
+        "saturn barycenter": 0.8459715185680659e-7 * (au**3) / (86400**2),
+        "uranus barycenter": 0.1292024916781969e-7 * (au**3) / (86400**2),
+        "neptune barycenter": 0.1524358900784276e-7 * (au**3) / (86400**2),
+        "pluto barycenter": 0.2188699765425970e-11 * (au**3) / (86400**2)
+    }
 
     def name(self):
         return "Apophis"
@@ -81,11 +83,11 @@ class ApophisPropagation():
         '''Newtonian gravitational acceleration from specified planet.
             planet: name of planet (string)
             time: astropy.Time object  '''
-        planet_mass = self.mass_dictionary[planet]
+        planet_gm = self.gm_dictionary[planet]
         planet_position = spice.spkpos(planet, t, 'J2000', 'NONE', 'SOLAR SYSTEM BARYCENTER')[0] * 1000
         planet_displacement = planet_position - r
         planet_distance = norm(planet_displacement)
-        magnitude = G.value * planet_mass / (planet_distance ** 2)
+        magnitude = planet_gm / (planet_distance ** 2)
         direction = planet_displacement / planet_distance
         return magnitude * direction
 
@@ -98,7 +100,7 @@ class ApophisPropagation():
         r = y[0:3]
         g_sum = [0, 0, 0]
 
-        for planet in self.mass_dictionary:
+        for planet in self.gm_dictionary:
             g_sum += self._gravity_newtonian(r, planet, t)
 
         rdot = y[3:6]
@@ -204,7 +206,7 @@ class ApophisPropagation():
 
         term1 = self._total_gravity_newtonian(t, y)[3:6]
 
-        term2 = GM_sun.value/(c.value**2 * norm(r_apophis_sun)**3)
+        term2 = GM_sun.value/(c**2 * norm(r_apophis_sun)**3)
 
         term3 = ((4 * GM_sun.value / norm(r_apophis_sun)) - norm(v_apophis_sun)**2)*r_apophis_sun
 
@@ -368,7 +370,7 @@ class ApophisPropagation():
         mcm_1 = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self, k=k, s=s)
         t1, y1 = mcm_1.Integrate()
 
-        mcm_2 = MultistepRadau(f=rhs, y0=y1[:, -1], t0=t1[-1], tEnd=2462245.5*86400, h=step_time/100, totalIntegrands=6, problem=self, k=k, s=s)
+        mcm_2 = MultistepRadau(f=rhs, y0=y1[:, -1], t0=t1[-1], tEnd=t_2029_after, h=step_time/100, totalIntegrands=6, problem=self, k=k, s=s)
         t2, y2 = mcm_2.Integrate()
 
         distances_from_earth = []
@@ -412,20 +414,20 @@ class ApophisPropagation():
 			
         x = np.argmin(distances_from_earth)		
 		
-        v_x = y4[3:6, x]
-        t_x = Time(times[x], format="jd")
-        earth_v = get_body_barycentric_posvel("earth", t_x)[1]
-        earth_v_nd = earth_v.get_xyz().to(u.m/u.s).value
-        relative_velocity = np.linalg.norm(v_x - earth_v_nd)
+        #v_x = y4[3:6, x]
+        #t_x = Time(times[x], format="jd")
+        #earth_v = get_body_barycentric_posvel("earth", t_x)[1]
+        #earth_v_nd = earth_v.get_xyz().to(u.m/u.s).value
+        #relative_velocity = np.linalg.norm(v_x - earth_v_nd)
 		
         print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
         print("Propagation time:", tm.perf_counter( ) - start_clock)
-        print("Relative velocity:", relative_velocity)
-        print("Maximum discretisation error", relative_velocity * (step_time/2000000))
+        #print("Relative velocity:", relative_velocity)
+        #print("Maximum discretisation error", relative_velocity * (step_time/2000000))
         #plt.plot(times, distances_from_earth)
         #plt.show()
         return t1, y1
 
 a = ApophisPropagation(state_vector_2006, t_2006)
-a.ClosestApproachScipy(seconds_per_day, integrator="RK45", gravity_model="relativistic_light")
+a.ClosestApproachMCM(seconds_per_day)
 
