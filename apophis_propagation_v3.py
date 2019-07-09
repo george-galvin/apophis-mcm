@@ -12,18 +12,16 @@ from numpy.linalg import norm
 spice.furnsh("de405.bsp")
 spice.furnsh("naif0009.tls")
 
-au = 149598770691
+au = 149597870691
 c = 299792458
-G = 6.67408e-11
-
-#GM_sun = 1.32712440017987e20
-#M_earth = 
 
 '''STATE VECTORS'''
 
 #Initial conditions from Giorgini (2008), September 1 2006 00:00
-state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
--22433.451271099162, 22780.815403058397, 7899.677821557445]
+#state_vector_2006 = [77727856485.2246, 97506471809.9321, 38271666051.90773, \
+#-22433.451271099162, 22780.815403058397, 7899.677821557445]
+
+state_vector_2006 = [77727856480.57504, 97506471804.09593, 38271666049.61714, -22433.45127329345, 22780.815405286692, 7899.677822330075]
 
 #HORIZONS state vector, September 1 2006 00:00
 state_vector_2006_horizons = [77727900266.26141, 97506424400.57415, 38271670918.17467, \
@@ -37,23 +35,20 @@ state_vector_2019_horizons = [110902901314.6609, 38080320887.97272, 17020446307.
 #t_2006 = 2453979.5 * 86400 #September 1.0, 2006 UTC
 t_2006 = spice.str2et('Sep 1, 2006')
 t_test = t_2006 + ((5)*86400) #Test time, can be changed
-t_2029_before = spice.str2et('Apr 8, 2029') 
-t_2029_after = spice.str2et('April 18, 2029') 
+t_2029_before = spice.str2et('Apr 8, 2029')
+t_2029_after = spice.str2et('April 18, 2029')
 
 seconds_per_day = 86400
 
 
 class ApophisPropagation():
-    def __init__(self, initial_state_vector, start_time):
-        self.initial_state_vector = initial_state_vector
-        self.start_time = start_time        
 
     '''gm_dictionary = {
         "sun": 1.32712440017987e20,
         "mercury barycenter": 2.2032080e13,
         "venus barycenter": 3.24858599e14,
-        "earth barycenter": 3.96800433e14,
-        "moon": 4.902801e12,
+        "earth barycenter": 3.98600433e14,
+        "moon":  4.902801e12,
         "mars barycenter": 4.2828314e13,
         "jupiter barycenter": 1.26712767863e17,
         "saturn barycenter": 3.7940626063e16,
@@ -63,18 +58,23 @@ class ApophisPropagation():
     }'''
 
     gm_dictionary = {
-        "sun": 1.32712440017987e20,
+        "sun": 0.01720209895**2 * (au**3) / (86400**2),
         "mercury barycenter": 0.4912547451450812e-10 * (au**3) / (86400**2),
         "venus barycenter": 0.7243452486162703e-9 * (au**3) / (86400**2),
         "earth barycenter": 0.8887692390113509e-9 * (au**3) / (86400**2),
         "moon": 0.1093189565989898e-10 * (au**3) / (86400**2),
-        "mars barycenter": 0.9594535105779258e-10 * (au**3) / (86400**2),
+        "mars barycenter": 0.9549535105779258e-10 * (au**3) / (86400**2),
         "jupiter barycenter": 0.2825345909524226e-6 * (au**3) / (86400**2),
         "saturn barycenter": 0.8459715185680659e-7 * (au**3) / (86400**2),
         "uranus barycenter": 0.1292024916781969e-7 * (au**3) / (86400**2),
         "neptune barycenter": 0.1524358900784276e-7 * (au**3) / (86400**2),
         "pluto barycenter": 0.2188699765425970e-11 * (au**3) / (86400**2)
     }
+
+    def __init__(self, initial_state_vector, start_time):
+        self.initial_state_vector = initial_state_vector
+        self.start_time = start_time
+        print(self.gm_dictionary)
 
     def name(self):
         return "Apophis"
@@ -296,7 +296,7 @@ class ApophisPropagation():
             rhs = self._total_gravity_relativistic_light
 
         start_clock = tm.perf_counter()
-		
+
         ivp1 = solve_ivp(rhs, (self.start_time, t_2029_before), y0=self.initial_state_vector, method=integrator, max_step = step_time)
         t1 = ivp1.t
         y1 = ivp1.y
@@ -345,10 +345,10 @@ class ApophisPropagation():
         for i in range(len(y4[0])):
             distances_from_earth.append(self._distance_from_earth(y4[0:3, i], t4[i]))
             times.append(t4[i]/86400)
-			
-        x = np.argmin(distances_from_earth)		
-		
-		
+
+        x = np.argmin(distances_from_earth)
+
+
         print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
         print("Propagation time:", tm.perf_counter() - start_clock)
 
@@ -365,8 +365,8 @@ class ApophisPropagation():
             rhs = self._total_gravity_relativistic_light
 
         start_clock = tm.perf_counter()
-		
-			
+
+
         mcm_1 = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self, k=k, s=s)
         t1, y1 = mcm_1.Integrate()
 
@@ -395,7 +395,7 @@ class ApophisPropagation():
         for i in range(len(y3[0])):
             distances_from_earth.append(self._distance_from_earth(y3[0:3, i], t3[i]))
             times.append(t3[i]/86400)
-			
+
         x = np.argmin(distances_from_earth)
 
         start_time = t3[x-1]
@@ -411,15 +411,15 @@ class ApophisPropagation():
         for i in range(len(y4[0])):
             distances_from_earth.append(self._distance_from_earth(y4[0:3, i], t4[i]))
             times.append(t4[i]/86400)
-			
-        x = np.argmin(distances_from_earth)		
-		
+
+        x = np.argmin(distances_from_earth)
+
         #v_x = y4[3:6, x]
         #t_x = Time(times[x], format="jd")
         #earth_v = get_body_barycentric_posvel("earth", t_x)[1]
         #earth_v_nd = earth_v.get_xyz().to(u.m/u.s).value
         #relative_velocity = np.linalg.norm(v_x - earth_v_nd)
-		
+
         print("Closest approach: ", distances_from_earth[x], "metres at JD", times[x])
         print("Propagation time:", tm.perf_counter( ) - start_clock)
         #print("Relative velocity:", relative_velocity)
@@ -429,5 +429,4 @@ class ApophisPropagation():
         return t1, y1
 
 a = ApophisPropagation(state_vector_2006, t_2006)
-a.ClosestApproachMCM(seconds_per_day)
-
+a.ClosestApproachScipy(seconds_per_day)
