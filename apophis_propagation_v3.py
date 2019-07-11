@@ -10,7 +10,7 @@ from numpy.linalg import norm
 from astroquery.jplhorizons import Horizons
 
 spice.furnsh("de405.bsp")
-spice.furnsh("naif0011.tls")
+spice.furnsh("naif0009.tls")
 
 au = 149597870691
 c = 299792458
@@ -252,52 +252,23 @@ class ApophisPropagation():
         #plt.show()
 
         ####################################
-        ivp2 = solve_ivp(rhs, (t1[-1], t_2029_after), y0=y1[:, -1], method=integrator, max_step=step_time/100)
-        t2 = ivp2.t
-        y2 = ivp2.y
 
-        distances_from_earth = []
-        times = []
+        start_time = t1[-1]
+        finish_time = t_2029_after
+        initial_y = y1[:, -1]
 
-        for i in range(len(y2[0])):
-            distances_from_earth.append(self._distance_from_earth(y2[0:3, i], t2[i]))
-            times.append(t2[i])
-
-        x = np.argmin(distances_from_earth)
-
-        start_time = t2[x-1]
-        finish_time = t2[x+1]
-        initial_y = y2[:, x-1]
-
-        ivp3 = solve_ivp(rhs, (start_time, finish_time), y0=initial_y, method=integrator, max_step=step_time/10000)
-        t3 = ivp3.t
-        y3 = ivp3.y
-
-        distances_from_earth = []
-        times = []
-
-        for i in range(len(y3[0])):
-            distances_from_earth.append(self._distance_from_earth(y3[0:3, i], t3[i]))
-            times.append(t3[i])
-
-        x = np.argmin(distances_from_earth)
-
-        start_time = t3[x-1]
-        finish_time = t3[x+1]
-        initial_y = y3[:, x-1]
-
-        ivp4 = solve_ivp(rhs, (start_time, finish_time), y0=initial_y, method=integrator, max_step=step_time/1000000)
-        t4 = ivp4.t
-        y4 = ivp4.y
-
-        distances_from_earth = []
-        times = []
-
-        for i in range(len(y4[0])):
-            distances_from_earth.append(self._distance_from_earth(y4[0:3, i], t4[i]))
-            times.append(t4[i])
-
-        x = np.argmin(distances_from_earth)
+        for i in range(5):
+            step_time = step_time/100
+            ivp = solve_ivp(rhs, (start_time, finish_time), y0 = initial_y, method=integrator, max_step=step_time)
+            distances_from_earth = []
+            times = []
+            for j in range(len(ivp.y[0])):
+                distances_from_earth.append(self._distance_from_earth(ivp.y[0:3, j], ivp.t[j]))
+                times.append(ivp.t[j])
+            x = np.argmin(distances_from_earth)
+            start_time = ivp.t[x-1]
+            finish_time = ivp.t[x+1]
+            initial_y = ivp.y[:, x-1]
 
         print("Closest approach: ", distances_from_earth[x], "metres at", (times[x]/86400)+2451545)#spice.et2utc(times[x], 'J', 10))
         print("Propagation time:", tm.perf_counter() - start_clock)
