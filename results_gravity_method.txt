@@ -1,0 +1,79 @@
+RELATIVISTIC LIGHT
+
+1 step per day
+Closest approach:  38047076.33720041 metres at 2462240.407078426
+Propagation time: 21.943186500000003
+
+2 steps per day
+Closest approach:  38038690.33268864 metres at 2462240.4070765497
+Propagation time: 42.442288
+
+4 steps per day
+Closest approach:  38038422.02282747 metres at 2462240.407076522
+Propagation time: 83.7685278
+
+8 steps per day
+
+Closest approach:  38038413.83672115 metres at 2462240.407076325
+Propagation time: 171.52944159999998
+
+16 steps per day
+Closest approach:  38038412.652395934 metres at 2462240.4070768226
+Propagation time: 341.0957253
+
+RELATIVISTIC
+
+1 step per day
+Closest approach:  38047251.769547865 metres at 2462240.407078538
+Propagation time: 90.9216521
+
+2 steps per day
+Closest approach:  38038866.334677346 metres at 2462240.407076657
+Propagation time: 176.850998
+
+4 steps per day
+Closest approach:  38038597.73588701 metres at 2462240.4070766266
+Propagation time: 358.68367639999997
+
+8 steps per day
+Closest approach:  38038590.0801236 metres at 2462240.407076428
+Propagation time: 686.6781638
+
+16 steps per day
+Closest approach:  38038587.92647925 metres at 2462240.4070769767
+Propagation time: 1387.0181154
+
+RELATIVISTIC_LIGHTER
+
+Closest approach:  38062602.81609161 metres at 2462240.4066893742
+Propagation time: 21.394215000000003
+Closest approach:  38054214.82474714 metres at 2462240.406687426
+Propagation time: 41.758459099999996
+Closest approach:  38053946.80004492 metres at 2462240.4066872643
+Propagation time: 84.5974316
+Closest approach:  38053938.337445825 metres at 2462240.4066870883
+Propagation time: 163.65623499999998
+Closest approach:  38053937.113038264 metres at 2462240.40668764
+Propagation time: 326.5869101
+
+NEWTONIAN
+
+1 step per day
+Closest approach:  37031518.174665295 metres at 2462240.4066104223
+Propagation time: 19.5333856
+
+2 steps per day
+Closest approach:  37023148.309574 metres at 2462240.40660834
+Propagation time: 38.7960828
+
+4 steps per day
+Closest approach:  37022880.04744959 metres at 2462240.4066084926
+Propagation time: 75.04490679999999
+
+8 steps per day
+Closest approach:  37022872.42446073 metres at 2462240.4066081275
+Propagation time: 146.87662629999997
+
+16 steps per day
+Closest approach:  37022872.35515354 metres at 2462240.4066081536
+Propagation time: 292.58010879999995
