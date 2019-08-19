@@ -5,6 +5,7 @@ import time as tm
 import spiceypy as spice
 
 from scipy.integrate import solve_ivp
+from scipy.stats import linregress
 from MultistepRadau import MultistepRadau
 from numpy.linalg import norm
 
@@ -37,11 +38,14 @@ state_vector_2019_horizons = [110902901314.6609, 38080320887.97272, 17020446307.
 
 ''' Times - Seconds past J2000 '''
 t_2006 = (2453979.5-2451545.0) * 86400 #September 1.0, 2006
-t_test = t_2006 + (365*86400) #Test time, can be changed
+t_test = t_2006 + (365*22*86400) #Test time, can be changed
 t_2029_before = (2462234.5-2451545.0) * 86400 #April 18.0, 2029
 t_2029_after = (2462244.5-2451545.0) * 86400 #April 28.0, 2029
+t_2036 = (2464914.5-2451545.0)*86400
 
 seconds_per_day = 86400
+
+tolerance_vector = np.array([9.13189996e+10, 8.25049153e+10, 3.05825308e+10, 1.96120460e+04, 1.82016616e+04, 6.77383954e+03]) * 1e-10
 
 class ApophisPropagation():
 
@@ -60,8 +64,9 @@ class ApophisPropagation():
         #"pluto barycenter": 9.81601e11,
         "ceres": 1.32712440017987e20 * 4.7e-10,
         "pallas": 1.32712440017987e20 * 1e-10,        
-        "vesta": 1.32712440017987e20 * 1.3e-10,
+        "vesta": 1.32712440017987e20 * 1.3e-10
     }
+
     def __init__(self, initial_state_vector, start_time):
         self.initial_state_vector = initial_state_vector
         self.start_time = start_time
@@ -98,6 +103,31 @@ class ApophisPropagation():
 
         return np.append(rdot, vdot)
 
+    def _jacobian_newtonian(self, t, y):
+        lower_left = np.zeros([3, 3])
+        
+        for planet in self.gm_dictionary:
+            gm = self.gm_dictionary[planet]
+            planet_position = spice.spkpos(planet, t, 'J2000', 'NONE', 'SOLAR SYSTEM BARYCENTER')[0] * 1000 
+            rvec = planet_position - y[0:3]
+            r = norm(rvec)
+            lower_left += np.array([[3*gm*(rvec[0]**2)*r**(-5) - gm*r**(-3),
+                                     3*gm*rvec[0]*rvec[1]*r**(-5),
+                                     3*gm*rvec[0]*rvec[2]*r**(-5)],
+                                    [3*gm*rvec[0]*rvec[1]*r**(-5),
+                                     3*gm*(rvec[1]**2)*r**(-5) - gm*r**(-3) ,
+                                     3*gm*rvec[2]*rvec[1]*r**(-5)],
+                                    [3*gm*rvec[0]*rvec[2]*r**(-5),
+                                     3*gm*rvec[2]*rvec[1]*r**(-5),
+                                      3*gm*(rvec[2]**2)*r**(-5) - gm*r**(-3)]])
+        
+        jacobian = np.array([[0, 0, 0, 1, 0, 0], [0, 0, 0, 0, 1, 0], [0, 0, 0, 0, 0, 1],
+         [lower_left[0, 0], lower_left[0, 1], lower_left[0, 2], 0, 0, 0], 
+         [lower_left[1, 0], lower_left[1, 1], lower_left[1, 2], 0, 0, 0], 
+         [lower_left[2, 0], lower_left[2, 1], lower_left[2, 2], 0, 0, 0]])
+
+        return jacobian
+
     def _get_body_barycentric_acc(self, body, t):
         #Uses numerical differentiation to estimate body acceleration
         interval = 86400
@@ -115,7 +145,7 @@ class ApophisPropagation():
         r_apophis = y[0:3]
         v_apophis = y[3:6]
 
-        beta = 1
+        beta = 1        
         gamma = 1
         g_sum = [0, 0, 0]
         gm=[]
@@ -224,19 +254,70 @@ class ApophisPropagation():
         print(np.ndarray.tolist(self._total_gravity_relativistic_light(self.start_time, self.initial_state_vector)))
         print(np.ndarray.tolist(self._total_gravity_relativistic(self.start_time, self.initial_state_vector)))
 
-    def PropagateMCM(self, finish_time, step_time, gravity_model="relativistic_light"):
+    def PropagateScipy(self, finish_time, gravity_model="relativistic_light", integrator="LSODA", tol=14):
         if gravity_model == "newtonian":
             rhs = self._total_gravity_newtonian
         elif gravity_model == "relativistic":
             rhs = self._total_gravity_relativistic
         elif gravity_model == "relativistic_light":
             rhs = self._total_gravity_relativistic_light
-        mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = finish_time, h=step_time, totalIntegrands=6, problem=self)
+            
+        ivp1 = solve_ivp(rhs, (self.start_time, finish_time), first_step=seconds_per_day/8, y0=self.initial_state_vector, method=integrator, rtol=0, atol=tolerance_vector*10**(-tol))
+        t1 = ivp1.t
+        y1 = ivp1.y
+        t1 = t1[15:]
+        diff = np.diff(t1)
+        steps_per_day = seconds_per_day/diff
+        print(seconds_per_day/diff)
+        print(len(t1))
+        print(t1[-1])
+        plt.plot(t1[:-1]/(86400*365.25) + 2000, steps_per_day)
+        plt.show()
+
+        
+    def PropagateMCM(self, finish_time, step_time, gravity_model="relativistic_light", k=1, s=5):
+        if gravity_model == "newtonian":
+            rhs = self._total_gravity_newtonian
+        elif gravity_model == "relativistic":
+            rhs = self._total_gravity_relativistic
+        elif gravity_model == "relativistic_light":
+            rhs = self._total_gravity_relativistic_light
+        mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = finish_time, h=step_time, totalIntegrands=6, problem=self, k=k, s=s)
         t, y = mcm.Integrate()
+        
+        '''vesta = []
+        ceres = []
+        pallas = []
+        sun = []
 
-        return y[:,-1]
+        for pos in range(len(t)):
+            vesta.append(norm(self._gravity_newtonian(y[0:3, pos], "vesta", t[pos])))
+            ceres.append(norm(self._gravity_newtonian(y[0:3, pos], "ceres", t[pos])))
+            pallas.append(norm(self._gravity_newtonian(y[0:3, pos], "pallas", t[pos])))
+            sun.append(norm(self._gravity_newtonian(y[0:3, pos], "sun", t[pos]))/10000)
 
-    def ClosestApproachScipy(self, step_time, gravity_model="relativistic_light", integrator="RK45"):
+          
+        fig, ax1 = plt.subplots()
+
+        ax1.set_xlabel("Year")
+        ax1.set_ylabel("Acceleration from asteroids ($m/s^2$)")
+
+        ax2 = ax1.twinx()
+        ax2.set_ylabel("Acceleration from sun ($m/s^2$)")
+
+        t = ((t/86400)/365.25)+2000
+        
+        ax1.plot(t, vesta, color="green", label="Vesta")
+        ax1.plot(t, ceres, color="magenta", label="Ceres")
+        ax1.plot(t, pallas, color="purple", label="Pallas")
+        ax2.plot(t, sun, color="yellow", label="Sun")
+
+        fig.tight_layout()
+        plt.show()'''
+        
+        return y, t
+
+    def ClosestApproachScipy(self, step_time, gravity_model="relativistic_light", integrator="Radau"):
         if gravity_model == "newtonian":
             rhs = self._total_gravity_newtonian
         elif gravity_model == "relativistic":
@@ -251,7 +332,7 @@ class ApophisPropagation():
         total_rhs = 0      
 
         steps = np.arange(self.start_time, t_2029_before, step_time)
-        ivp1 = solve_ivp(rhs, (self.start_time, t_2029_before), first_step=step_time, t_eval=steps, y0=self.initial_state_vector, method=integrator, rtol=1e-11, atol=0, max_step=step_time)
+        ivp1 = solve_ivp(rhs, (self.start_time, t_2029_before), first_step=step_time, t_eval=steps, y0=self.initial_state_vector, method=integrator, rtol=np.inf, atol=np.inf, max_step=step_time)
         t1 = ivp1.t
         y1 = ivp1.y
 
@@ -260,14 +341,10 @@ class ApophisPropagation():
         initial_y = y1[:, -1]
         total_rhs += ivp1.nfev
 
-        print(len(t1))
-        print(np.diff(t1))
-        print(total_rhs)
-		
         for i in range(4):
             step_time = step_time/100
             steps = np.linspace(start_time, finish_time, 200)
-            ivp = solve_ivp(rhs, (start_time, finish_time), first_step=step_time, t_eval=steps, y0 = initial_y, method=integrator, rtol=1e-11, atol=0, max_step=step_time)
+            ivp = solve_ivp(rhs, (start_time, finish_time), first_step=step_time, t_eval=steps, y0 = initial_y, method=integrator, rtol=np.inf, atol=np.inf, max_step=step_time)
     
             total_rhs += ivp.nfev
 			
@@ -281,35 +358,41 @@ class ApophisPropagation():
             finish_time = ivp.t[min(x+1, len(ivp.t) - 1)]
             initial_y = ivp.y[:, max(x-1, 0)]
 
+        propagation_time = tm.perf_counter() - start_clock
+
         print("Closest approach: ", distances_from_earth[x], "metres at", (times[x]/86400)+2451545)
-        print("Propagation time:", tm.perf_counter() - start_clock)
+        print("Propagation time:", propagation_time)
         print("Total right-hand side evaluations: ", total_rhs)
         
-        return t1, y1
+        return {"min_dist": distances_from_earth[x], "t": times[x], "total_t": propagation_time, "total_rhs": total_rhs}
 
-    def ClosestApproachMCM(self, step_time, gravity_model="relativistic_light",  k=1, s=5):
+    def ClosestApproachMCM(self, step_time, gravity_model="relativistic_light",  k=1, s=6):
         if gravity_model == "newtonian":
             rhs = self._total_gravity_newtonian
         elif gravity_model == "relativistic":
             rhs = self._total_gravity_relativistic
         elif gravity_model == "relativistic_light":
             rhs = self._total_gravity_relativistic_light
+        elif gravity_model == "relativistic_e0":
+            rhs = self._total_gravity_relativistic_e0        
 
         start_clock = tm.perf_counter()
-        print("Step time: ", seconds_per_day / step_time)
+        print("Steps per day: ", seconds_per_day / step_time)
 
-        mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self, k=k, s=s)
+        total_rhs = 0
+
+        mcm = MultistepRadau(f=rhs, y0=self.initial_state_vector, analJac=self._jacobian_newtonian, t0=self.start_time, tEnd = t_2029_before, h=step_time, totalIntegrands=6, problem=self, k=k, s=s, printStats=False)
         t1, y1 = mcm.Integrate()
+        #total_rhs += num_rhs
         start_time = t1[-1]
         finish_time = t_2029_after
         initial_y = y1[:, -1]
 
-        for i in range(3):
-            print(start_time, finish_time)
+        for i in range(4):
             step_time = step_time/100
-            mcm = MultistepRadau(f=rhs, t0=start_time, tEnd=finish_time, y0=initial_y, h=step_time, totalIntegrands=6, problem=self, k=k, s=s)
+            mcm = MultistepRadau(f=rhs, t0=start_time, tEnd=finish_time, analJac=self._jacobian_newtonian, y0=initial_y, h=step_time, totalIntegrands=6, problem=self, k=k, s=s, printStats=False)
             t, y = mcm.Integrate()
-			
+            #total_rhs += num_rhs
             distances_from_earth = []
             times = []
             for j in range(len(y[0])):
@@ -320,21 +403,15 @@ class ApophisPropagation():
             finish_time = t[min(x+1, len(t) - 1)]
             initial_y = y[:, max(x-1, 0)]
 
-        #v_x = y4[3:6, x]
-        #t_x = Time(times[x], format="jd")
-        #earth_v = get_body_barycentric_posvel("earth", t_x)[1]
-        #earth_v_nd = earth_v.get_xyz().to(u.m/u.s).value
-        #relative_velocity = np.linalg.norm(v_x - earth_v_nd)
+        propagation_time = tm.perf_counter() - start_clock
 
         print("Closest approach: ", distances_from_earth[x], "metres at ", (times[x]/86400)+2451545)
-        print("Propagation time:", tm.perf_counter( ) - start_clock)
+        print("Propagation time:", tm.perf_counter() - start_clock)
+        #print("Total right-hand side evaluations: ", total_rhs)
         
-        #print("Relative velocity:", relative_velocity)
-        #print("Maximum discretisation error", relative_velocity * (step_time/2000000))
-        #plt.plot(times, distances_from_earth)
-        #plt.show()
-        return 0
+        return {"min_dist": distances_from_earth[x], "t": times[x], "total_t": propagation_time}
 
-for m in [64]:
-    a = ApophisPropagation(state_vector_2006, t_2006)
-    a.ClosestApproachScipy(seconds_per_day/m, gravity_model = "relativistic_light", integrator="LSODA")
+
+a = ApophisPropagation(state_vector_2006, t_2006)
+a.PropagateScipy(t_2036, integrator="LSODA")
+
